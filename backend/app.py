@@ -82,7 +82,7 @@ def get_groq_insight(prediction_label, hr, eda, peaks):
     import json
     
     api_key = os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY")
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    url = "https://api.groq.com/..........."
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
