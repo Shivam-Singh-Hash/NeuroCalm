@@ -1137,3 +1137,9 @@ body {
 .btn-demo:not(:disabled) {
     animation: pulse-demo 2s infinite;
 }
+  
+.pdf-light-mode { background: #ffffff !important; padding: 10px !important; border-radius: 8px !important; border: 1px solid #e2e8f0 !important; }  
+.pdf-light-mode .recharts-text { fill: #475569 !important; font-weight: 600 !important; }  
+.pdf-light-mode line { stroke: #e2e8f0 !important; } 
+  
+.pdf-light-mode { --primary: #4338ca !important; --secondary: #0f766e !important; --warning: #b45309 !important; --text-muted: #64748b !important; } 

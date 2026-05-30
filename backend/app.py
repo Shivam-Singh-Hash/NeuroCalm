@@ -2,6 +2,15 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import traceback
+
+# Load local .env if it exists
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+if os.path.exists(env_path):
+    with open(env_path) as f:
+        for line in f:
+            if '=' in line and not line.startswith('#'):
+                k, v = line.strip().split('=', 1)
+                os.environ[k] = v
 import pandas as pd
 import numpy as np
 import joblib
@@ -105,6 +114,95 @@ def get_groq_insight(prediction_label, hr, eda, peaks):
     except Exception as e:
         print(f"Groq API Error: {e}")
         return None
+
+def get_groq_action_plan(score, hr, eda, peak):
+    import urllib.request
+    import json
+    
+    api_key = os.environ.get("GROQ_API_KEY")
+    fallback = "1. Initiate cognitive rest period to physically lower resting cardiovascular tension safely right now.\n2. Engage in 4-7-8 breathing immediately to stabilize your erratic heart rate variance metrics.\n3. Consume 500ml of water to reduce physiological autonomic stress markers effectively and quickly.\n4. Disengage from screen stimuli for ten minutes to allow optimal cortical neural recovery."
+    if not api_key: return fallback
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = f"The user has a physiological stress score of {score}% (Peak at {peak}s). Average HR: {hr} BPM, EDA: {eda} µS. Provide exactly 4 highly actionable and clinical suggestions to reduce stress or maintain health. Each suggestion MUST be a full sentence and strictly between 9 and 13 words long. Format strictly as a numbered list with no introduction or conclusion."
+    
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "system", "content": prompt}],
+        "temperature": 0.5
+    }
+    
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                text = res_data['choices'][0]['message']['content'].strip()
+                
+                lines = [l for l in text.split('\n') if l.strip() != '']
+                if len(lines) >= 4:
+                    valid = True
+                    for line in lines[:4]:
+                        word_count = len(line.split())
+                        if word_count < 9 or word_count > 13:
+                            valid = False
+                            break
+                    if valid:
+                        return '\n'.join(lines[:4])
+        except Exception as e:
+            pass
+            
+    return fallback
+
+def get_pdf_groq_action_plan(score, hr, eda, peak):
+    import urllib.request
+    import json
+    
+    api_key = os.environ.get("GROQ_API_KEY")
+    fallback = "1. CLINICAL OBSERVATION: Patient exhibits sustained sympathetic nervous activation, requiring immediate physical down-regulation.\n2. INTERVENTION: Implement targeted vagus nerve stimulation via slow diaphragmatic breathing for ten minutes.\n3. PHYSICAL RECOVERY: Mandate temporary cessation of high-cognitive activities to restore normal resting state.\n4. HYDRATION THERAPY: Increase electrolyte fluid intake to optimize neural conductivity and stabilize readings."
+    if not api_key: return fallback
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = f"You are writing a formal medical diagnostic report. The patient has a physiological stress score of {score}% (Peak at {peak}s). Average HR: {hr} BPM, EDA: {eda} µS. Provide exactly 4 detailed clinical sentences (as a numbered list) providing an actionable intervention protocol. Every single sentence MUST be strictly between 9 and 13 words long to ensure optimal PDF layout readability. Do not include introductory text."
+    
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "system", "content": prompt}],
+        "temperature": 0.5
+    }
+    
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                text = res_data['choices'][0]['message']['content'].strip()
+                
+                lines = [l for l in text.split('\n') if l.strip() != '']
+                if len(lines) >= 4:
+                    valid = True
+                    for line in lines[:4]:
+                        word_count = len(line.split())
+                        if word_count < 9 or word_count > 13:
+                            valid = False
+                            break
+                    if valid:
+                        return '\n'.join(lines[:4])
+        except Exception as e:
+            pass
+            
+    return fallback
+
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -381,21 +479,23 @@ def predict_detailed():
         peak_idx = int(np.argmax(stress_probs))
         peak_time = timeline[peak_idx]["time"]
         
-        # Recommendation Engine
-        recommendation = "Maintain your current activity. Biometrics look stable."
-        if overall_stress_score > 70:
-            recommendation = "Action Required: High sympathetic activation detected. Please initiate the 4-7-8 breathing exercise immediately."
-        elif overall_stress_score > 40:
-            recommendation = "Take a short break. Your skin conductance and heart rate variance suggest building fatigue."
+        # AI Recommendation Engine
+        mean_hr = float(np.mean(hr_data)) if len(hr_data) > 0 else 0.0
+        mean_eda = float(np.mean(eda_data)) if len(eda_data) > 0 else 0.0
+        
+        recommendation = get_groq_action_plan(round(overall_stress_score, 1), round(mean_hr, 1), round(mean_eda, 2), peak_time)
 
         # Downsample signals for smooth UI charts (limit to 200 points)
         def downsample(arr, n=200):
             if len(arr) <= n: return arr.tolist()
             return arr[np.linspace(0, len(arr)-1, n).astype(int)].tolist()
 
+        prediction_label = "Stress" if overall_stress_score > 65 else ("Amusement" if overall_stress_score > 35 else "Baseline")
+
         return jsonify({
             "status": "success",
             "model_used": model_selection,
+            "prediction_label": prediction_label,
             "overall_stress_score": round(overall_stress_score, 1),
             "peak_stress_time": peak_time,
             "recommendation": recommendation,
@@ -459,6 +559,17 @@ def chat_endpoint():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": "NeuroCalm API is experiencing a connection delay... please try again."}), 500
+
+@app.route('/api/generate_report_plan', methods=['POST'])
+def generate_report_plan():
+    data = request.json
+    score = data.get('score', 0)
+    hr = data.get('hr', 75)
+    eda = data.get('eda', 1.0)
+    peak = data.get('peak', 0)
+    
+    recommendation = get_pdf_groq_action_plan(round(float(score), 1), round(float(hr), 1), round(float(eda), 2), peak)
+    return jsonify({"status": "success", "recommendation": recommendation})
 
 if __name__ == '__main__':
     print("Starting NeuroCalm Backend Server...")

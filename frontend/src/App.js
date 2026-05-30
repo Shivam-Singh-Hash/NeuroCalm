@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { UploadCloud, CheckCircle, Circle, Activity, Heart, BrainCircuit, ShieldAlert, Zap, Download, Send, MessageSquare, X, LayoutDashboard, Users, Settings, Bell, User, Headphones, Play } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie, Sector } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie, Sector, ReferenceLine } from 'recharts';
 import axios from 'axios';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -10,6 +10,7 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
   const [files, setFiles] = useState({ eda: null, temp: null, hr: null });
   const [loading, setLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [chartData, setChartData] = useState([]);
   
@@ -64,9 +65,10 @@ function App() {
     setChatLoading(true);
     
     try {
+      const metricsCtx = sessionSummary ? `Stress Score: ${Math.round(sessionSummary.score)}%, Peak at ${sessionSummary.peakTime}s. AI State: ${result.prediction_label}` : 'Baselines unknown';
       const res = await axios.post('http://localhost:5000/api/chat', {
         message: userMsg,
-        context: result ? result.prediction_label : 'Baselines highly unknown',
+        context: metricsCtx,
         tone: aiTone
       });
       setChatHistory(prev => [...prev, { role: 'ai', content: res.data.reply }]);
@@ -83,113 +85,196 @@ function App() {
         return;
     }
     
+    setPdfLoading(true);
+    
     try {
+      // Fetch fresh, detailed PDF report from AI
+      const avgHr = chartData.reduce((acc, curr) => acc + curr.hr, 0) / chartData.length || 75;
+      const avgEda = chartData.reduce((acc, curr) => acc + curr.eda, 0) / chartData.length || 1.5;
+      
+      let reportRecommendation = sessionSummary?.recommendation;
+      try {
+          const res = await axios.post('/api/generate_report_plan', {
+              score: sessionSummary.score,
+              hr: avgHr,
+              eda: avgEda,
+              peak: sessionSummary.peakTime
+          });
+          reportRecommendation = res.data.recommendation;
+      } catch (err) {
+          console.error("Failed to generate specialized report plan", err);
+      }
+      
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       
-      // 1. Premium Header Background
+      // Authentic Medical Reference ID
+      const refId = `REF: NC-${Math.floor(Math.random() * 10000)}-${new Date().getFullYear()}`;
+      
+      // 1. Ultra-Premium Header Background
       pdf.setFillColor(15, 23, 42); // Dark slate
-      pdf.rect(0, 0, pageWidth, 40, 'F');
+      pdf.rect(0, 0, pageWidth, 45, 'F');
       
-      // 2. Header Text
+      // Logo (Fake Brain/Pulse Icon using primitives)
+      pdf.setDrawColor(45, 212, 191);
+      pdf.setLineWidth(1.5);
+      pdf.circle(26, 22.5, 6, 'S');
+      pdf.line(22, 22.5, 25, 22.5);
+      pdf.line(25, 22.5, 26, 19);
+      pdf.line(26, 19, 27, 26);
+      pdf.line(27, 26, 28, 22.5);
+      pdf.line(28, 22.5, 30, 22.5);
+      
+      // Header Text
       pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(24);
+      pdf.setFontSize(26);
       pdf.setFont(undefined, 'bold');
-      pdf.text("NEUROCALM", 20, 20);
+      pdf.text("NEUROCALM", 38, 26);
       
-      pdf.setFontSize(10);
+      pdf.setFontSize(9);
       pdf.setFont(undefined, 'normal');
       pdf.setTextColor(148, 163, 184); // slate-400
-      pdf.text("ADVANCED BIOMETRIC DIAGNOSTICS", 20, 28);
-      
-      pdf.setFontSize(12);
-      pdf.setTextColor(255, 255, 255);
-      pdf.text("CONFIDENTIAL CLINICAL REPORT", pageWidth - 20, 24, { align: "right" });
-      
-      // 3. Document Meta Data Box
-      pdf.setDrawColor(226, 232, 240); // slate-200
-      pdf.setFillColor(248, 250, 252); // slate-50
-      pdf.rect(20, 50, pageWidth - 40, 25, 'FD');
+      pdf.text("ADVANCED NEURAL DIAGNOSTICS", 38, 32);
       
       pdf.setFontSize(10);
-      pdf.setTextColor(100, 116, 139); // slate-500
-      pdf.text("REPORT DATE", 25, 58);
-      pdf.text("SESSION DURATION", 85, 58);
-      pdf.text("AI CONFIDENCE", 145, 58);
+      pdf.setTextColor(255, 255, 255);
+      pdf.text("CERTIFIED CLINICAL REPORT", pageWidth - 20, 24, { align: "right" });
+      pdf.setTextColor(45, 212, 191);
+      pdf.text(refId, pageWidth - 20, 30, { align: "right" });
       
-      pdf.setFontSize(12);
-      pdf.setTextColor(15, 23, 42); // slate-900
+      // 2. Patient / Session Meta Grid
+      pdf.setDrawColor(226, 232, 240);
+      pdf.setLineWidth(0.5);
+      pdf.line(20, 52, pageWidth - 20, 52); // Top border
+      
+      pdf.setFontSize(8);
+      pdf.setTextColor(100, 116, 139);
+      pdf.text("DATE OF DIAGNOSIS", 20, 60);
+      pdf.text("SESSION DURATION", 75, 60);
+      pdf.text("PEAK INTENSITY TIME", 130, 60);
+      
+      pdf.setFontSize(11);
+      pdf.setTextColor(15, 23, 42);
       pdf.setFont(undefined, 'bold');
-      pdf.text(new Date().toLocaleDateString(), 25, 66);
-      pdf.text(sessionSummary ? formatTime(sessionSummary.duration) : '--', 85, 66);
-      pdf.text(`${sessionSummary ? Math.round(sessionSummary.confidence * 100) : '--'}%`, 145, 66);
+      pdf.text(new Date().toLocaleDateString(), 20, 66);
+      pdf.text(sessionSummary ? formatTime(sessionSummary.duration) : '--', 75, 66);
+      pdf.text(sessionSummary ? formatTime(sessionSummary.peakTime) : '--', 130, 66);
       
-      // 4. Primary Diagnosis Result
+      pdf.line(20, 72, pageWidth - 20, 72); // Bottom border
+      
+      // 3. Primary Diagnosis Result
       const isStress = sessionSummary?.score > 65;
       const isBaseline = sessionSummary?.score <= 35;
       const highlightColor = isStress ? [239, 68, 68] : (isBaseline ? [16, 185, 129] : [245, 158, 11]);
       
       pdf.setFillColor(highlightColor[0], highlightColor[1], highlightColor[2]);
-      pdf.rect(20, 85, 5, 25, 'F');
+      pdf.rect(20, 85, 4, 28, 'F');
       
-      pdf.setFontSize(14);
-      pdf.setTextColor(15, 23, 42);
-      pdf.text("ALGORITHMIC DIAGNOSIS", 30, 93);
-      
-      pdf.setFontSize(16);
-      pdf.setTextColor(highlightColor[0], highlightColor[1], highlightColor[2]);
-      pdf.text(`${result.prediction_label.toUpperCase()} STATE`, 30, 103);
-      
-      pdf.setFontSize(12);
+      pdf.setFontSize(10);
       pdf.setTextColor(100, 116, 139);
+      pdf.setFont(undefined, 'bold');
+      pdf.text("PRIMARY ALGORITHMIC DIAGNOSIS", 30, 92);
+      
+      pdf.setFontSize(18);
+      pdf.setTextColor(highlightColor[0], highlightColor[1], highlightColor[2]);
+      const stateLabel = result.prediction_label ? result.prediction_label.toUpperCase() : (isStress ? 'STRESS' : 'BASELINE');
+      pdf.text(`${stateLabel} STATE DETECTED`, 30, 103);
+      
+      pdf.setFontSize(10);
+      pdf.setTextColor(71, 85, 105);
       pdf.setFont(undefined, 'normal');
-      pdf.text(`Overall Stress Score: ${sessionSummary ? Math.round(sessionSummary.score) : '--'}%`, pageWidth - 20, 103, { align: "right" });
-      
-      // 5. Clinical Recommendation Box
-      pdf.setDrawColor(highlightColor[0], highlightColor[1], highlightColor[2]);
-      pdf.setFillColor(255, 255, 255);
-      pdf.rect(20, 120, pageWidth - 40, 35, 'FD');
-      
-      pdf.setFontSize(12);
+      pdf.text("OVERALL STRESS INDEX", pageWidth - 20, 92, { align: "right" });
+      pdf.setFontSize(16);
       pdf.setFont(undefined, 'bold');
       pdf.setTextColor(15, 23, 42);
-      pdf.text("Clinical Recommendation", 25, 132);
+      pdf.text(`${sessionSummary ? Math.round(sessionSummary.score) : '--'} / 100`, pageWidth - 20, 103, { align: "right" });
       
-      pdf.setFontSize(11);
+      // 4. Clinical Recommendation Box (Authentic Styling)
+      pdf.setFillColor(248, 250, 252);
+      pdf.setDrawColor(203, 213, 225);
+      pdf.rect(20, 125, pageWidth - 40, 65, 'FD'); // Enlarged to perfectly fit 4-5 detailed lines
+      
+      pdf.setFontSize(10);
+      pdf.setFont(undefined, 'bold');
+      pdf.setTextColor(15, 23, 42);
+      pdf.text("AI-DRIVEN ACTION PROTOCOL", 25, 133);
+      
+      pdf.setFontSize(9);
       pdf.setFont(undefined, 'normal');
-      pdf.setTextColor(71, 85, 105);
-      const splitRec = pdf.splitTextToSize(sessionSummary?.recommendation || 'No actionable data.', pageWidth - 50);
-      pdf.text(splitRec, 25, 142);
+      pdf.setTextColor(51, 65, 85);
       
-      // 6. Biosignal Telemetry Snapshot
-      const chartElement = document.getElementById('chart-capture-area');
-      if (chartElement) {
-         pdf.setFontSize(14);
-         pdf.setTextColor(15, 23, 42);
-         pdf.setFont(undefined, 'bold');
-         pdf.text("Biosignal Telemetry Graph", 20, 175);
+      if (reportRecommendation) {
+         let lines = reportRecommendation.split('\n').filter(l => l.trim() !== '');
          
-         const canvas = await html2canvas(chartElement, { scale: 2, backgroundColor: '#030712' });
-         const imgData = canvas.toDataURL('image/jpeg', 1.0);
-         const imgWidth = pageWidth - 40;
-         const imgHeight = (canvas.height * imgWidth) / canvas.width;
+         // Enforce absolute minimum of 4 lines for PDF layout consistency
+         const fallbackLines = [
+             "CLINICAL OBSERVATION: Patient exhibits sustained sympathetic nervous activation, requiring immediate physical down-regulation.",
+             "INTERVENTION: Implement targeted vagus nerve stimulation via slow diaphragmatic breathing for ten minutes.",
+             "PHYSICAL RECOVERY: Mandate temporary cessation of high-cognitive activities to restore normal resting state.",
+             "HYDRATION THERAPY: Increase electrolyte fluid intake to optimize neural conductivity and stabilize readings."
+         ];
+         while (lines.length < 4) {
+             lines.push(fallbackLines[lines.length]);
+         }
          
-         // Dark background container
-         pdf.setFillColor(3, 7, 18);
-         pdf.rect(20, 180, imgWidth, imgHeight + 4, 'F');
-         pdf.addImage(imgData, 'JPEG', 20, 182, imgWidth, imgHeight);
+         let yPos = 141;
+         lines.forEach(line => {
+             const cleanLine = line.replace(/^[0-9]+\.\s*/, '').replace(/^\*\s*/, '');
+             const split = pdf.splitTextToSize(cleanLine, pageWidth - 55);
+             pdf.setFillColor(45, 212, 191);
+             pdf.circle(26.5, yPos - 1.2, 0.8, 'F'); 
+             pdf.text(split, 30, yPos);
+             yPos += (split.length * 4.5) + 4; // Perfect line spacing
+         });
+      } else {
+         pdf.text("Scanning biometric patterns...", 25, 142);
       }
       
-      // Footer
-      pdf.setFontSize(9);
-      pdf.setTextColor(148, 163, 184);
-      pdf.text("NeuroCalm - Proprietary AI Diagnostics", pageWidth/2, pageHeight - 15, { align: "center" });
+      // 5. Biosignal Telemetry Snapshot (Unified Graph)
+      const chartElement = document.getElementById('pdf-combined-chart');
+      if (chartElement) {
+         // Force light mode for PDF capture
+         chartElement.classList.add('pdf-light-mode');
+         
+         const canvas = await html2canvas(chartElement, { scale: 2, backgroundColor: '#ffffff' });
+         
+         // Revert light mode
+         chartElement.classList.remove('pdf-light-mode');
+         
+         const imgData = canvas.toDataURL('image/jpeg', 1.0);
+         
+         // Calculate dimensions to fill the remaining space on Page 1
+         const imgWidth = pageWidth - 40;
+         let imgHeight = (canvas.height * imgWidth) / canvas.width;
+         
+         // Ensure it doesn't overlap the footer
+         const maxImgHeight = 85;
+         let finalImgWidth = imgWidth;
+         
+         if (imgHeight > maxImgHeight) {
+             finalImgWidth = (maxImgHeight * canvas.width) / canvas.height;
+             imgHeight = maxImgHeight;
+         }
+         
+         const xOffset = 20 + (imgWidth - finalImgWidth) / 2;
+         
+         pdf.setDrawColor(203, 213, 225);
+         pdf.rect(xOffset - 2, 193, finalImgWidth + 4, imgHeight + 4, 'S');
+         pdf.addImage(imgData, 'JPEG', xOffset, 195, finalImgWidth, imgHeight);
+      }
       
-      pdf.save(`NeuroCalm_Diagnostic_Report_${new Date().getTime()}.pdf`);
+      // 6. Simple Footer
+      pdf.setFontSize(8);
+      pdf.setTextColor(200, 200, 200);
+      pdf.text("Page 1 of 1", pageWidth / 2, pageHeight - 10, { align: "center" });
+      
+      pdf.save(`NeuroCalm_Diagnostic_${refId}.pdf`);
     } catch (err) {
-      console.error("PDF Generation failed", err);
+      console.error(err);
       alert("Failed to generate PDF. Please try again.");
+    } finally {
+        setPdfLoading(false);
     }
   };
 
@@ -323,7 +408,7 @@ function App() {
       setPatientHistory(prev => [{
         id: Date.now(),
         date: new Date().toLocaleString(),
-        label: data.overall_stress_score > 50 ? "Elevated Stress" : "Healthy Baseline",
+        label: data.overall_stress_score > 50 ? "Elevated Stress" : "Healthy State",
         hr: data.insights?.mean_hr || 0,
         score: data.overall_stress_score
       }, ...prev]);
@@ -356,7 +441,7 @@ function App() {
             if (i % 5 === 0) {
                 demoTimeline.push({
                     time: i,
-                    label: isStress ? 'Stress' : 'Baseline',
+                    label: isStress ? 'Stress' : 'Resting',
                     confidence: 0.85 + Math.random()*0.1
                 });
             }
@@ -506,8 +591,8 @@ function App() {
                   {patientHistory.length > 0 && <div className="bell-badge"></div>}
                </div>
              {result && (
-               <button className="btn-pdf" onClick={generatePDF}>
-                 <Download size={18} /> Clinical Report
+               <button className="btn-pdf" onClick={generatePDF} disabled={pdfLoading}>
+                 <Download size={18} /> {pdfLoading ? 'Generating AI Report...' : 'Clinical Report'}
                </button>
              )}
             <div className="header-status">
@@ -651,16 +736,31 @@ function App() {
                         </ul>
                     </div>
                 </div>
-                <div style={{marginTop:'0.6rem', padding:'1rem', borderRadius:'12px', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(45, 212, 191, 0.1))', border: '1px solid var(--primary-glow)'}}>
-                    <p style={{fontSize:'0.85rem', lineHeight:1.4, margin:0}}>
-                       <strong>Recommendation: </strong> 
-                       {sessionSummary ? sessionSummary.recommendation : 'Scanning biometric patterns...'}
-                    </p>
-                </div>
             </div>
           </div>
         </div>
 
+        {/* AI Action Plan Full Width Banner */}
+        <div className="glass-panel" style={{marginBottom: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(45, 212, 191, 0.05))', border: '1px solid var(--primary-glow)'}}>
+            <div style={{fontSize:'1.2rem', fontWeight:800, color:'var(--primary-light)', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                <BrainCircuit size={20} /> AI Personalized Action Plan
+            </div>
+            {sessionSummary ? (
+                <div style={{fontSize:'0.95rem', lineHeight:1.6, color:'rgba(255,255,255,0.9)', display:'grid', gridTemplateColumns: '1fr 1fr', gap:'1.5rem'}}>
+                    {sessionSummary.recommendation.split('\n').filter(line => line.trim() !== '').map((line, idx) => (
+                        <div key={idx} style={{display:'flex', gap:'12px', alignItems:'flex-start', background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)'}}>
+                            <div style={{color:'var(--primary)', marginTop:'2px', fontSize: '1.2rem'}}>✦</div>
+                            <div>{line.replace(/^[0-9]+\.\s*/, '').replace(/^\*\s*/, '')}</div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p style={{fontSize:'0.95rem', lineHeight:1.4, margin:0, color:'rgba(255,255,255,0.5)'}}>
+                    Scanning biometric patterns to generate plan...
+                </p>
+            )}
+        </div>
+        
         {/* Main Content Area */}
         <div className="main-grid">
           
@@ -765,9 +865,9 @@ function App() {
                     <AreaChart data={chartData} syncId="biosync" margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                       <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={10} />
-                      <YAxis stroke="#facc15" fontSize={10} tickLine={false} axisLine={false} />
+                      <YAxis stroke="var(--warning)" fontSize={10} tickLine={false} axisLine={false} />
                       <Tooltip contentStyle={{ background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: 'white', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }} />
-                      <Area type="monotone" dataKey="temp" stroke="#facc15" fillOpacity={0.2} fill="#facc15" />
+                      <Area type="monotone" dataKey="temp" stroke="var(--warning)" fillOpacity={0.2} fill="var(--warning)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </>
@@ -910,6 +1010,47 @@ function App() {
         )}
 
         </div>
+        
+        {/* Hidden Combined Chart for PDF Generation Only */}
+        <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+            <div id="pdf-combined-chart" className="pdf-light-mode" style={{ width: '1000px', height: '520px', background: 'white', padding: '30px 40px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                
+                {/* Premium Dashboard Header inspired by user UI request */}
+                <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '30px', alignItems: 'flex-start'}}>
+                    <div>
+                        <div style={{color: '#1e293b', fontWeight: '800', fontSize: '20px', letterSpacing: '-0.5px'}}>Biometric Telemetry Overview</div>
+                        <div style={{color: '#64748b', fontSize: '13px', marginTop: '6px', fontWeight: '500'}}>Last updated: {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                    </div>
+                </div>
+
+                {chartData.length > 0 && (
+                    <AreaChart width={920} height={350} data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                        <XAxis dataKey="time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={{stroke: '#cbd5e1'}} tickMargin={10} />
+                        <YAxis yAxisId="hr" domain={['dataMin - 10', 'dataMax + 10']} hide />
+                        <YAxis yAxisId="eda" domain={['dataMin - 0.5', 'dataMax + 0.5']} hide />
+                        <YAxis yAxisId="temp" domain={['dataMin - 1', 'dataMax + 1']} hide />
+                        
+                        {/* Peak Stress Indicator Line */}
+                        {sessionSummary?.peakTime && (
+                            <ReferenceLine yAxisId="hr" x={sessionSummary.peakTime} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={2} label={{ position: 'top', value: 'PEAK STRESS', fill: '#ef4444', fontSize: 13, fontWeight: '800' }} />
+                        )}
+                        
+                        <Area yAxisId="hr" type="monotone" dataKey="hr" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.1} strokeWidth={2.5} />
+                        <Area yAxisId="eda" type="monotone" dataKey="eda" stroke="var(--secondary)" fill="var(--secondary)" fillOpacity={0.1} strokeWidth={2.5} />
+                        <Area yAxisId="temp" type="monotone" dataKey="temp" stroke="var(--warning)" fill="var(--warning)" fillOpacity={0.1} strokeWidth={2.5} />
+                    </AreaChart>
+                )}
+                
+                {/* Clean Bottom Legend */}
+                <div style={{display: 'flex', justifyContent: 'center', gap: '30px', marginTop: '20px', fontSize: '13px', fontWeight: '700'}}>
+                    <div style={{color: '#475569', display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width:'12px', height:'12px', borderRadius: '2px', background:'var(--primary)'}}></div> HR (Heart Rate)</div>
+                    <div style={{color: '#475569', display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width:'12px', height:'12px', borderRadius: '2px', background:'var(--secondary)'}}></div> EDA (Sweat)</div>
+                    <div style={{color: '#475569', display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width:'12px', height:'12px', borderRadius: '2px', background:'var(--warning)'}}></div> TEMP (Body Heat)</div>
+                </div>
+            </div>
+        </div>
+
       </main>
     </div>
   );
